@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">사진테스트</string>
+    <string name="info_exit_message">\'뒤로\'버튼 한번 더 누르시면 종료됩니다.</string>
+</resources>
