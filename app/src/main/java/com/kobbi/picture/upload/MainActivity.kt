@@ -42,19 +42,19 @@ class MainActivity : AppCompatActivity() {
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        Log.e("####", "onActivityResult() --> $requestCode, resultCode : $resultCode, data : $data")
+        Log.e("####", "Picture.onActivityResult() --> $requestCode, resultCode : $resultCode, data : $data")
         when (requestCode) {
             UPLOAD_REQUEST_CODE -> {
-                Log.e("####", "onActivityResult() --> data : $data")
-                Log.e("####", "onActivityResult() --> uri : ${data?.data}")
+                Log.e("####", "Picture.onActivityResult() --> data : $data")
+                Log.e("####", "Picture.onActivityResult() --> uri : ${data?.data}")
                 val uri = getResultUri(data)
                 val uriArr = if (uri != null) arrayOf(uri) else null
                 mFilePathCallback?.onReceiveValue(uriArr)
                 mFilePathCallback = null
             }
             LOAD_IMG_VIEW_REQUEST_CODE -> {
-                Log.e("####", "onActivityResult() --> data : $data")
-                Log.e("####", "onActivityResult() --> uri : ${data?.data}")
+                Log.e("####", "Picture.onActivityResult() --> data : $data")
+                Log.e("####", "Picture.onActivityResult() --> uri : ${data?.data}")
                 getResultUri(data)?.let { uri ->
                     iv_load_img.setImageBitmap(
                         BitmapFactory.decodeStream(
@@ -100,31 +100,43 @@ class MainActivity : AppCompatActivity() {
                     uri
             }
         } else {
-            Log.e("####", "mCameraPhotoPath : $mCameraPhotoPath")
+            Log.e("####", "Picture.getResultUri() --> mCameraPhotoPath : $mCameraPhotoPath")
             if (mCameraPhotoPath != null) {
                 resultUri = mCameraPhotoPath
             }
         }
-        Log.e("####", "resultUri : $resultUri")
+        Log.e("####", "Picture.getResultUri() --> resultUri : $resultUri")
         if (resultUri != null) {
-            val file = File("${cacheDir}/tmp_img_${System.currentTimeMillis()}.jpg")
-            applicationContext.contentResolver.openInputStream(resultUri!!).use { ois ->
-                val bitmap = BitmapFactory.decodeStream(ois)
-                Log.e("####","bitmap.byteCount : ${bitmap.allocationByteCount}")
-                file.createNewFile()
-                file.outputStream().use { fos ->
-                    bitmap?.compress(Bitmap.CompressFormat.JPEG, 100, fos)
-                }
-                Log.e("####", "file : $file, size : ${file.length()}")
-            }
+            val file = getResizedFile(resultUri!!)
             if (resultUri == mCameraPhotoPath) {
-                Log.e("####", "delete uri")
+                Log.e("####", "Picture.getResultUri() --> delete uri")
                 applicationContext.contentResolver.delete(resultUri!!, null, null)
                 mCameraPhotoPath = null
             }
             return Uri.fromFile(file)
         }
         return null
+    }
+
+    private fun getResizedFile(uri: Uri): File {
+        val filePath = "${cacheDir}/tmp_img_${System.currentTimeMillis()}.jpg"
+        val fileMaxSize = 5 * 1024 * 1024
+        val reducingValue = 5
+        val file = File(filePath)
+        applicationContext.contentResolver.openInputStream(uri).use { ois ->
+            val bitmap = BitmapFactory.decodeStream(ois)
+            var count = 0
+            do {
+                val quality = 100 - count++ * reducingValue
+                Log.e("####","Picture.getResizedFile() --> quality : $quality")
+                file.outputStream().use { fos ->
+                    bitmap?.compress(Bitmap.CompressFormat.JPEG, quality, fos)
+                }
+                val fileSize = file.length()
+                Log.e("####", "Picture.getResizedFile() --> fileSize($count) : $fileSize")
+            } while (file.length() >= fileMaxSize)
+        }
+        return file
     }
 
     inner class ChromeClient : WebChromeClient() {
@@ -140,7 +152,7 @@ class MainActivity : AppCompatActivity() {
             filePathCallback: ValueCallback<Array<Uri>>?,
             fileChooserParams: FileChooserParams?
         ): Boolean {
-            Log.e("####", "onShowFileChooser() --> filePathCallback : $filePathCallback")
+            Log.e("####", "Picture.onShowFileChooser() --> filePathCallback : $filePathCallback")
             mFilePathCallback?.onReceiveValue(null)
             mFilePathCallback = filePathCallback
             imageChooser(UPLOAD_REQUEST_CODE)
@@ -151,10 +163,10 @@ class MainActivity : AppCompatActivity() {
     private fun imageChooser(requestCode: Int) {
         val pictureIntent = Intent(MediaStore.ACTION_IMAGE_CAPTURE)
         val resolveActivity = pictureIntent.resolveActivity(packageManager)
-        Log.e("####", "resolveActivity : $resolveActivity")
+        Log.e("####", "Picture.imageChooser() --> resolveActivity : $resolveActivity")
         resolveActivity?.run {
             val fileUri = createImageFile()
-            Log.e("####", "call createImageFile() : $fileUri")
+            Log.e("####", "Picture.imageChooser() --> fileUri : $fileUri")
             if (fileUri != null) {
                 pictureIntent.putExtra(MediaStore.EXTRA_OUTPUT, fileUri)
             }
@@ -176,13 +188,13 @@ class MainActivity : AppCompatActivity() {
         val fileName = "tmp_img_$timestamp"
         val contentValues = ContentValues().apply {
             put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
-            put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
+            put(MediaStore.MediaColumns.MIME_TYPE, "image/*")
         }
-        Log.e("####", "createImageFile() --> contentValues : $contentValues")
+        Log.e("####", "Picture.createImageFile() --> contentValues : $contentValues")
         val resolver = applicationContext.contentResolver
         val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)
         mCameraPhotoPath = uri
-        Log.e("####", "createImageFile() --> uri : $uri")
+        Log.e("####", "Picture.createImageFile() --> uri : $uri")
         return uri
     }
 }
