@@ -4,9 +4,10 @@ import android.content.ContentValues
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Matrix
+import android.media.ExifInterface
 import android.net.Uri
 import android.os.Bundle
-import android.os.Environment
 import android.provider.MediaStore
 import android.util.Log
 import android.view.View
@@ -107,24 +108,73 @@ class MainActivity : AppCompatActivity() {
         }
         Log.e("####", "resultUri : $resultUri")
         if (resultUri != null) {
-            val file = File("${cacheDir}/tmp_img_${System.currentTimeMillis()}.jpg")
-            applicationContext.contentResolver.openInputStream(resultUri!!).use { ois ->
-                val bitmap = BitmapFactory.decodeStream(ois)
-                Log.e("####","bitmap.byteCount : ${bitmap.allocationByteCount}")
-                file.createNewFile()
-                file.outputStream().use { fos ->
-                    bitmap?.compress(Bitmap.CompressFormat.JPEG, 100, fos)
-                }
-                Log.e("####", "file : $file, size : ${file.length()}")
-            }
+            val file = getResizedFile(resultUri!!)
             if (resultUri == mCameraPhotoPath) {
                 Log.e("####", "delete uri")
                 applicationContext.contentResolver.delete(resultUri!!, null, null)
                 mCameraPhotoPath = null
             }
-            return Uri.fromFile(file)
+            return if (file != null) Uri.fromFile(file) else null
         }
         return null
+    }
+
+    private fun getResizedFile(uri: Uri): File? {
+        val file = File("${cacheDir}/tmp_img_${System.currentTimeMillis()}.jpg")
+        val maxFileSize = 5 * 1024 * 1024
+        val reducingValue = 5
+        var count = 0
+        return try {
+            var path: String? = null
+            applicationContext.contentResolver.query(uri, null, null, null, null)?.use {
+                it.moveToNext()
+                path = it.getString(it.getColumnIndex("_data"))
+                Log.e("####", "getResizedFile() --> path : $path")
+            }
+            if (path != null) {
+                var bitmap = BitmapFactory.decodeFile(path)
+                do {
+                    val quality = 100 - count++ * reducingValue
+                    ExifInterface(path!!).run {
+                        val orientation = getAttributeInt(
+                            ExifInterface.TAG_ORIENTATION,
+                            ExifInterface.ORIENTATION_UNDEFINED
+                        )
+                        val degrees = when (orientation) {
+                            ExifInterface.ORIENTATION_ROTATE_90 -> 90f
+                            ExifInterface.ORIENTATION_ROTATE_180 -> 180f
+                            ExifInterface.ORIENTATION_ROTATE_270 -> 270f
+                            else -> 0f
+                        }
+                        Log.e(
+                            "####",
+                            "getResizedFile() --> orientation : $orientation, degrees : $degrees"
+                        )
+                        if (degrees != 0f && bitmap != null) {
+                            val matrix = Matrix().apply {
+                                setRotate(degrees)
+                            }
+                            val converted = Bitmap.createBitmap(
+                                bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true
+                            )
+
+                            if (converted != bitmap) {
+                                bitmap.recycle()
+                                bitmap = converted
+                            }
+                        }
+                    }
+                    file.outputStream().use { fos ->
+                        bitmap?.compress(Bitmap.CompressFormat.JPEG, quality, fos)
+                    }
+                } while (file.length() >= maxFileSize)
+            }
+            file
+        } catch (e: Exception) {
+            Log.e("####", "getResizedFile() --> error : ${e.message}")
+            e.printStackTrace()
+            null
+        }
     }
 
     inner class ChromeClient : WebChromeClient() {
