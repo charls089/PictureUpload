@@ -132,40 +132,11 @@ class MainActivity : AppCompatActivity() {
                 Log.e("####", "getResizedFile() --> path : $path")
             }
             if (path != null) {
-                var bitmap = BitmapFactory.decodeFile(path)
+                val bitmap = getRotatedBitmap(path!!)
                 do {
                     val quality = 100 - count++ * reducingValue
-                    ExifInterface(path!!).run {
-                        val orientation = getAttributeInt(
-                            ExifInterface.TAG_ORIENTATION,
-                            ExifInterface.ORIENTATION_UNDEFINED
-                        )
-                        val degrees = when (orientation) {
-                            ExifInterface.ORIENTATION_ROTATE_90 -> 90f
-                            ExifInterface.ORIENTATION_ROTATE_180 -> 180f
-                            ExifInterface.ORIENTATION_ROTATE_270 -> 270f
-                            else -> 0f
-                        }
-                        Log.e(
-                            "####",
-                            "getResizedFile() --> orientation : $orientation, degrees : $degrees"
-                        )
-                        if (degrees != 0f && bitmap != null) {
-                            val matrix = Matrix().apply {
-                                setRotate(degrees)
-                            }
-                            val converted = Bitmap.createBitmap(
-                                bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true
-                            )
-
-                            if (converted != bitmap) {
-                                bitmap.recycle()
-                                bitmap = converted
-                            }
-                        }
-                    }
                     file.outputStream().use { fos ->
-                        bitmap?.compress(Bitmap.CompressFormat.JPEG, quality, fos)
+                        bitmap.compress(Bitmap.CompressFormat.JPEG, quality, fos)
                     }
                 } while (file.length() >= maxFileSize)
             }
@@ -175,6 +146,40 @@ class MainActivity : AppCompatActivity() {
             e.printStackTrace()
             null
         }
+    }
+
+    private fun getRotatedBitmap(path: String): Bitmap {
+        var bitmap = BitmapFactory.decodeFile(path)
+        ExifInterface(path).run {
+            val orientation = getAttributeInt(
+                ExifInterface.TAG_ORIENTATION,
+                ExifInterface.ORIENTATION_UNDEFINED
+            )
+            val degrees = when (orientation) {
+                ExifInterface.ORIENTATION_ROTATE_90 -> 90f
+                ExifInterface.ORIENTATION_ROTATE_180 -> 180f
+                ExifInterface.ORIENTATION_ROTATE_270 -> 270f
+                else -> 0f
+            }
+            Log.e(
+                "####",
+                "getResizedFile() --> orientation : $orientation, degrees : $degrees"
+            )
+            if (degrees != 0f && bitmap != null) {
+                val matrix = Matrix().apply {
+                    setRotate(degrees)
+                }
+                val converted = Bitmap.createBitmap(
+                    bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true
+                )
+
+                if (converted != bitmap) {
+                    bitmap.recycle()
+                    bitmap = converted
+                }
+            }
+        }
+        return bitmap
     }
 
     inner class ChromeClient : WebChromeClient() {
