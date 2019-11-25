@@ -58,11 +58,11 @@ class MainActivity : AppCompatActivity() {
                 Log.e("####", "onActivityResult() --> uri : ${data?.data}")
                 getResultUri(data)?.let { uri ->
                     iv_load_img.setImageBitmap(
-                        BitmapFactory.decodeStream(
-                            applicationContext.contentResolver.openInputStream(
-                                uri
+                            BitmapFactory.decodeStream(
+                                    applicationContext.contentResolver.openInputStream(
+                                            uri
+                                    )
                             )
-                        )
                     )
                 }
             }
@@ -120,7 +120,20 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun getResizedFile(uri: Uri): File? {
-        val file = File("${cacheDir}/tmp_img_${System.currentTimeMillis()}.jpg")
+        val dirPath = "${cacheDir}/Capture/"
+        val fileName = "tmp_img_${System.currentTimeMillis()}.jpg"
+        File(dirPath).let { dirs ->
+            if (!dirs.exists()) {
+                dirs.mkdirs()
+            }
+            if (dirs.isDirectory) {
+                dirs.listFiles()?.forEach {
+                    Log.e("####", "getResizedFile() --> dir.file : $it")
+                    it?.delete()
+                }
+            }
+        }
+        val file = File("$dirPath$fileName")
         val maxFileSize = 5 * 1024 * 1024
         val reducingValue = 5
         var count = 0
@@ -152,8 +165,8 @@ class MainActivity : AppCompatActivity() {
         var bitmap = BitmapFactory.decodeFile(path)
         ExifInterface(path).run {
             val orientation = getAttributeInt(
-                ExifInterface.TAG_ORIENTATION,
-                ExifInterface.ORIENTATION_UNDEFINED
+                    ExifInterface.TAG_ORIENTATION,
+                    ExifInterface.ORIENTATION_UNDEFINED
             )
             val degrees = when (orientation) {
                 ExifInterface.ORIENTATION_ROTATE_90 -> 90f
@@ -162,15 +175,15 @@ class MainActivity : AppCompatActivity() {
                 else -> 0f
             }
             Log.e(
-                "####",
-                "getResizedFile() --> orientation : $orientation, degrees : $degrees"
+                    "####",
+                    "getResizedFile() --> orientation : $orientation, degrees : $degrees"
             )
             if (degrees != 0f && bitmap != null) {
                 val matrix = Matrix().apply {
                     setRotate(degrees)
                 }
                 val converted = Bitmap.createBitmap(
-                    bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true
+                        bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true
                 )
 
                 if (converted != bitmap) {
@@ -191,9 +204,9 @@ class MainActivity : AppCompatActivity() {
         }
 
         override fun onShowFileChooser(
-            webView: WebView?,
-            filePathCallback: ValueCallback<Array<Uri>>?,
-            fileChooserParams: FileChooserParams?
+                webView: WebView?,
+                filePathCallback: ValueCallback<Array<Uri>>?,
+                fileChooserParams: FileChooserParams?
         ): Boolean {
             Log.e("####", "onShowFileChooser() --> filePathCallback : $filePathCallback")
             mFilePathCallback?.onReceiveValue(null)
