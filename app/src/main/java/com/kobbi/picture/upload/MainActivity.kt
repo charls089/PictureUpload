@@ -24,6 +24,8 @@ class MainActivity : AppCompatActivity() {
     companion object {
         private const val UPLOAD_REQUEST_CODE = 111
         private const val LOAD_IMG_VIEW_REQUEST_CODE = 222
+
+        private const val IMG_MIME_TYPE = "image/*"
     }
 
     private val mBackPressedCloser by lazy { BackPressedCloser(this) }
@@ -57,12 +59,13 @@ class MainActivity : AppCompatActivity() {
                 Log.e("####", "onActivityResult() --> data : $data")
                 Log.e("####", "onActivityResult() --> uri : ${data?.data}")
                 getResultUri(data)?.let { uri ->
+                    Log.e("####","uri : $uri")
                     iv_load_img.setImageBitmap(
-                            BitmapFactory.decodeStream(
-                                    applicationContext.contentResolver.openInputStream(
-                                            uri
-                                    )
+                        BitmapFactory.decodeStream(
+                            applicationContext.contentResolver.openInputStream(
+                                uri
                             )
+                        )
                     )
                 }
             }
@@ -140,8 +143,30 @@ class MainActivity : AppCompatActivity() {
         return try {
             var path: String? = null
             applicationContext.contentResolver.query(uri, null, null, null, null)?.use {
+                Log.e("####", "getResizedFile() --> cursor.count : ${it.count}")
+                Log.e("####", "getResizedFile() --> columnNames : ${it.columnNames.toList()}")
                 it.moveToNext()
-                path = it.getString(it.getColumnIndex("_data"))
+                val displayNameColumnIdx = it.getColumnIndex("_display_name")
+                val idColumnIdx = it.getColumnIndex("document_id")
+                val pathColumnIdx = it.getColumnIndex("_data")
+                if (pathColumnIdx != -1)
+                    path = it.getString(pathColumnIdx)
+                else if (displayNameColumnIdx != -1) {
+                    val displayName = it.getString(displayNameColumnIdx)
+                    val documentId = it.getString(idColumnIdx)
+                    Log.e("####", "getResizedFile() --> displayName : $displayName")
+                    Log.e("####", "getResizedFile() --> documentId : $documentId")
+                    Log.e("####", "getResizedFile() --> image uri : ${MediaStore.Images.Media.EXTERNAL_CONTENT_URI}")
+                    val contentUri = MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+                    val selection = "_id = ?"
+                    val selectionArgs = arrayOf(documentId.split(':')[1])
+                    applicationContext.contentResolver.query(contentUri, null, selection, selectionArgs, null)?.use {cursor2->
+                        cursor2.moveToNext()
+                        val pathColumnIdx2 = cursor2.getColumnIndex("_data")
+                        if (pathColumnIdx2 != -1)
+                            path = cursor2.getString(pathColumnIdx2)
+                    }
+                }
                 Log.e("####", "getResizedFile() --> path : $path")
             }
             if (path != null) {
@@ -152,8 +177,10 @@ class MainActivity : AppCompatActivity() {
                         bitmap.compress(Bitmap.CompressFormat.JPEG, quality, fos)
                     }
                 } while (file.length() >= maxFileSize)
+                file
+            } else {
+                null
             }
-            file
         } catch (e: Exception) {
             Log.e("####", "getResizedFile() --> error : ${e.message}")
             e.printStackTrace()
@@ -165,8 +192,8 @@ class MainActivity : AppCompatActivity() {
         var bitmap = BitmapFactory.decodeFile(path)
         ExifInterface(path).run {
             val orientation = getAttributeInt(
-                    ExifInterface.TAG_ORIENTATION,
-                    ExifInterface.ORIENTATION_UNDEFINED
+                ExifInterface.TAG_ORIENTATION,
+                ExifInterface.ORIENTATION_UNDEFINED
             )
             val degrees = when (orientation) {
                 ExifInterface.ORIENTATION_ROTATE_90 -> 90f
@@ -175,15 +202,15 @@ class MainActivity : AppCompatActivity() {
                 else -> 0f
             }
             Log.e(
-                    "####",
-                    "getResizedFile() --> orientation : $orientation, degrees : $degrees"
+                "####",
+                "getResizedFile() --> orientation : $orientation, degrees : $degrees"
             )
             if (degrees != 0f && bitmap != null) {
                 val matrix = Matrix().apply {
                     setRotate(degrees)
                 }
                 val converted = Bitmap.createBitmap(
-                        bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true
+                    bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true
                 )
 
                 if (converted != bitmap) {
@@ -204,9 +231,9 @@ class MainActivity : AppCompatActivity() {
         }
 
         override fun onShowFileChooser(
-                webView: WebView?,
-                filePathCallback: ValueCallback<Array<Uri>>?,
-                fileChooserParams: FileChooserParams?
+            webView: WebView?,
+            filePathCallback: ValueCallback<Array<Uri>>?,
+            fileChooserParams: FileChooserParams?
         ): Boolean {
             Log.e("####", "onShowFileChooser() --> filePathCallback : $filePathCallback")
             mFilePathCallback?.onReceiveValue(null)
@@ -229,7 +256,7 @@ class MainActivity : AppCompatActivity() {
         }
         val selectionIntent = Intent(Intent.ACTION_GET_CONTENT).apply {
             addCategory(Intent.CATEGORY_OPENABLE)
-            type = "image/*"
+            type = IMG_MIME_TYPE
         }
         val chooserIntent = Intent(Intent.ACTION_CHOOSER).apply {
             putExtra(Intent.EXTRA_INTENT, selectionIntent)
@@ -240,11 +267,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun createImageFile(): Uri? {
-        val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
-        val fileName = "tmp_img_$timestamp"
         val contentValues = ContentValues().apply {
-            put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
-            put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
+            put(MediaStore.MediaColumns.MIME_TYPE, IMG_MIME_TYPE)
         }
         Log.e("####", "createImageFile() --> contentValues : $contentValues")
         val resolver = applicationContext.contentResolver
