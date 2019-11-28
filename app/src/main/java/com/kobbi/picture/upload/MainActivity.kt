@@ -5,7 +5,6 @@ import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Matrix
-import android.media.ExifInterface
 import android.net.Uri
 import android.os.Bundle
 import android.provider.MediaStore
@@ -14,10 +13,10 @@ import android.view.View
 import android.webkit.*
 import android.widget.ProgressBar
 import androidx.appcompat.app.AppCompatActivity
+import androidx.exifinterface.media.ExifInterface
 import kotlinx.android.synthetic.main.activity_main.*
 import java.io.File
-import java.text.SimpleDateFormat
-import java.util.*
+import kotlin.concurrent.thread
 
 class MainActivity : AppCompatActivity() {
 
@@ -58,15 +57,19 @@ class MainActivity : AppCompatActivity() {
             LOAD_IMG_VIEW_REQUEST_CODE -> {
                 Log.e("####", "onActivityResult() --> data : $data")
                 Log.e("####", "onActivityResult() --> uri : ${data?.data}")
-                getResultUri(data)?.let { uri ->
-                    Log.e("####","uri : $uri")
-                    iv_load_img.setImageBitmap(
-                        BitmapFactory.decodeStream(
-                            applicationContext.contentResolver.openInputStream(
-                                uri
+                thread {
+                    getResultUri(data)?.let { uri ->
+                        Log.e("####", "uri : $uri")
+                        runOnUiThread {
+                            iv_load_img.setImageBitmap(
+                                BitmapFactory.decodeStream(
+                                    applicationContext.contentResolver.openInputStream(
+                                        uri
+                                    )
+                                )
                             )
-                        )
-                    )
+                        }
+                    }
                 }
             }
         }
@@ -141,41 +144,19 @@ class MainActivity : AppCompatActivity() {
         val reducingValue = 5
         var count = 0
         return try {
-            var path: String? = null
-            applicationContext.contentResolver.query(uri, null, null, null, null)?.use {
-                Log.e("####", "getResizedFile() --> cursor.count : ${it.count}")
-                Log.e("####", "getResizedFile() --> columnNames : ${it.columnNames.toList()}")
-                it.moveToNext()
-                val displayNameColumnIdx = it.getColumnIndex("_display_name")
-                val idColumnIdx = it.getColumnIndex("document_id")
-                val pathColumnIdx = it.getColumnIndex("_data")
-                if (pathColumnIdx != -1)
-                    path = it.getString(pathColumnIdx)
-                else if (displayNameColumnIdx != -1) {
-                    val displayName = it.getString(displayNameColumnIdx)
-                    val documentId = it.getString(idColumnIdx)
-                    Log.e("####", "getResizedFile() --> displayName : $displayName")
-                    Log.e("####", "getResizedFile() --> documentId : $documentId")
-                    Log.e("####", "getResizedFile() --> image uri : ${MediaStore.Images.Media.EXTERNAL_CONTENT_URI}")
-                    val contentUri = MediaStore.Images.Media.EXTERNAL_CONTENT_URI
-                    val selection = "_id = ?"
-                    val selectionArgs = arrayOf(documentId.split(':')[1])
-                    applicationContext.contentResolver.query(contentUri, null, selection, selectionArgs, null)?.use {cursor2->
-                        cursor2.moveToNext()
-                        val pathColumnIdx2 = cursor2.getColumnIndex("_data")
-                        if (pathColumnIdx2 != -1)
-                            path = cursor2.getString(pathColumnIdx2)
-                    }
-                }
-                Log.e("####", "getResizedFile() --> path : $path")
-            }
+            val path = getFilePathFromUri(uri)
             if (path != null) {
-                val bitmap = getRotatedBitmap(path!!)
+                val bitmap = getRotatedBitmap(path)
                 do {
                     val quality = 100 - count++ * reducingValue
+                    Log.e("####", "getResizedFile() --> [$count] quality : $quality")
                     file.outputStream().use { fos ->
                         bitmap.compress(Bitmap.CompressFormat.JPEG, quality, fos)
                     }
+                    Log.e(
+                        "####",
+                        "getResizedFile() --> size : ${file.length()} / maxFileSize : $maxFileSize"
+                    )
                 } while (file.length() >= maxFileSize)
                 file
             } else {
@@ -188,23 +169,50 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun getFilePathFromUri(uri: Uri): String? {
+        var path: String? = null
+        val contentResolver = applicationContext.contentResolver
+        contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+            Log.e("####", "getResizedFile() --> cursor.count : ${cursor.count}")
+            Log.e("####", "getResizedFile() --> columnNames : ${cursor.columnNames.toList()}")
+            cursor.moveToNext()
+            val pathColumnIdx = cursor.getColumnIndex("_data")
+            if (pathColumnIdx != -1) {
+                path = cursor.getString(pathColumnIdx)
+            } else {
+                val idColumnIdx = cursor.getColumnIndex("document_id")
+                if (idColumnIdx != -1) {
+                    val documentId = cursor.getString(idColumnIdx)
+                    val contentUri = MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+                    val selection = "_id = ?"
+                    val selectionArgs = arrayOf(documentId.split(':')[1])
+                    Log.e("####", "getResizedFile() --> documentId : $documentId")
+                    Log.e("####", "getResizedFile() --> contentUri : $contentUri")
+                    contentResolver.query(contentUri, null, selection, selectionArgs, null)
+                        ?.use { cursor2 ->
+                            cursor2.moveToNext()
+                            val pathColumnIdx2 = cursor2.getColumnIndex("_data")
+                            if (pathColumnIdx2 != -1)
+                                path = cursor2.getString(pathColumnIdx2)
+                        }
+                }
+            }
+        }
+        return path
+    }
+
     private fun getRotatedBitmap(path: String): Bitmap {
         var bitmap = BitmapFactory.decodeFile(path)
         ExifInterface(path).run {
-            val orientation = getAttributeInt(
-                ExifInterface.TAG_ORIENTATION,
-                ExifInterface.ORIENTATION_UNDEFINED
-            )
+            val orientation =
+                getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
             val degrees = when (orientation) {
                 ExifInterface.ORIENTATION_ROTATE_90 -> 90f
                 ExifInterface.ORIENTATION_ROTATE_180 -> 180f
                 ExifInterface.ORIENTATION_ROTATE_270 -> 270f
                 else -> 0f
             }
-            Log.e(
-                "####",
-                "getResizedFile() --> orientation : $orientation, degrees : $degrees"
-            )
+            Log.e("####", "getRotatedBitmap() --> orientation : $orientation, degrees : $degrees")
             if (degrees != 0f && bitmap != null) {
                 val matrix = Matrix().apply {
                     setRotate(degrees)
