@@ -11,6 +11,8 @@ import android.provider.MediaStore
 import android.util.Log
 import android.view.View
 import android.webkit.*
+import android.widget.ImageView
+import android.widget.LinearLayout
 import android.widget.ProgressBar
 import androidx.appcompat.app.AppCompatActivity
 import androidx.exifinterface.media.ExifInterface
@@ -30,6 +32,8 @@ class MainActivity : AppCompatActivity() {
     private val mBackPressedCloser by lazy { BackPressedCloser(this) }
     private val mWebView: WebView by lazy { findViewById<WebView>(R.id.wv_main) }
     private val mProgressBar: ProgressBar by lazy { findViewById<ProgressBar>(R.id.pb_load) }
+    private val mLoLoading: LinearLayout by lazy { findViewById<LinearLayout>(R.id.ll_loading_guide) }
+    private val mIvResults: ImageView by lazy { findViewById<ImageView>(R.id.iv_load_img) }
     private var mFilePathCallback: ValueCallback<Array<Uri>>? = null
     private var mCameraPhotoPath: Uri? = null
 
@@ -58,16 +62,22 @@ class MainActivity : AppCompatActivity() {
                 Log.e("####", "onActivityResult() --> data : $data")
                 Log.e("####", "onActivityResult() --> uri : ${data?.data}")
                 thread {
+                    runOnUiThread {
+                        mIvResults.visibility = View.GONE
+                        mLoLoading.visibility = View.VISIBLE
+                    }
                     getResultUri(data)?.let { uri ->
                         Log.e("####", "uri : $uri")
                         runOnUiThread {
-                            iv_load_img.setImageBitmap(
-                                BitmapFactory.decodeStream(
-                                    applicationContext.contentResolver.openInputStream(
-                                        uri
+                            mLoLoading.visibility = View.GONE
+                            mIvResults.run {
+                                visibility = View.VISIBLE
+                                setImageBitmap(
+                                    BitmapFactory.decodeStream(
+                                        applicationContext.contentResolver.openInputStream(uri)
                                     )
                                 )
-                            )
+                            }
                         }
                     }
                 }
