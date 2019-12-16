@@ -52,8 +52,8 @@ class MainActivity : AppCompatActivity() {
         when (requestCode) {
             UPLOAD_REQUEST_CODE -> {
                 Log.e("####", "onActivityResult() --> data : $data")
-                val uri = getResultUriArray(data)
-                mFilePathCallback?.onReceiveValue(uri)
+                val uriArr = getResultUriArray(data)
+                mFilePathCallback?.onReceiveValue(uriArr)
                 mFilePathCallback = null
             }
             LOAD_IMG_VIEW_REQUEST_CODE -> {
@@ -61,10 +61,10 @@ class MainActivity : AppCompatActivity() {
                 mLoLoading.visibility = View.VISIBLE
                 mLoContainer.removeAllViews()
                 thread {
-                    getResultUriArray(data)?.forEach { uri ->
-                        Log.e("####", "onActivityResult() --> uri : $uri")
-                        runOnUiThread {
-                            mLoLoading.visibility = View.GONE
+                    val uriArr = getResultUriArray(data)
+                    runOnUiThread {
+                        mLoLoading.visibility = View.GONE
+                        uriArr?.forEach { uri ->
                             val imageView = ImageView(this).apply {
                                 setImageBitmap(
                                     BitmapFactory.decodeStream(
@@ -104,55 +104,50 @@ class MainActivity : AppCompatActivity() {
 
     private fun getResultUriArray(data: Intent?): Array<Uri>? {
         val uriList = mutableListOf<Uri>()
-        if (data != null) {
-            Log.e("####", "data.data : ${data.data}")
-            if (data.data != null) {
-                data.data?.let { uri ->
-                    if (!uri.toString().startsWith("content://"))
-                        uriList.add(Uri.fromFile(File(uri.toString())))
-                    else
-                        uriList.add(uri)
-                }
-            } else if (data.clipData != null) {
-                data.clipData?.let { clipData ->
-                    for (i in 0 until clipData.itemCount) {
-                        uriList.add(clipData.getItemAt(i).uri)
-                    }
-                }
-            } else {
-                Log.e("####", "mCameraPhotoPath : $mCameraPhotoPath")
-                if (mCameraPhotoPath != null) {
-                    uriList.add(mCameraPhotoPath!!)
+        if (data?.data != null) {
+            Log.e("####", "getResultUriArray() --> data.data : ${data.data}")
+            data.data?.let { uri ->
+                if (!uri.toString().startsWith("content://"))
+                    uriList.add(Uri.fromFile(File(uri.toString())))
+                else
+                    uriList.add(uri)
+            }
+        } else if (data?.clipData != null) {
+            Log.e("####", "getResultUriArray() --> data.clipData : ${data.clipData}")
+            data.clipData?.let { clipData ->
+                for (i in 0 until clipData.itemCount) {
+                    uriList.add(clipData.getItemAt(i).uri)
                 }
             }
         } else {
-            Log.e("####", "mCameraPhotoPath : $mCameraPhotoPath")
+            Log.e("####", "getResultUriArray() --> mCameraPhotoPath : $mCameraPhotoPath")
             if (mCameraPhotoPath != null) {
                 uriList.add(mCameraPhotoPath!!)
             }
         }
-        Log.e("####", "uriList : $uriList")
+
+        Log.e("####", "getResultUriArray() --> uriList : $uriList")
         val results = getResizedFileList(uriList)
-        Log.e("####", "results : $results")
+        Log.e("####", "getResultUriArray() --> results : $results")
         return if (results.isEmpty()) null else results.toTypedArray()
     }
 
     private fun getResizedFileList(uriList: List<Uri>): List<Uri> {
         val results = mutableListOf<Uri>()
         val dirPath = "${cacheDir}/Capture/"
-        val fileName = "tmp_img_${System.currentTimeMillis()}.jpg"
         File(dirPath).let { dirs ->
             if (!dirs.exists()) {
                 dirs.mkdirs()
             }
         }
-        val file = File("$dirPath$fileName")
         val maxFileSize = 5 * 1024 * 1024
         val reducingValue = 5
         uriList.forEach { uri ->
-            getRotatedBitmap(uri)?.let { bitmap ->
-                var count = 0
-                try {
+            val fileName = "tmp_img_${System.currentTimeMillis()}.jpg"
+            val file = File("$dirPath$fileName")
+            var count = 0
+            try {
+                getRotatedBitmap(uri)?.let { bitmap ->
                     do {
                         val quality = 100 - count++ * reducingValue
                         Log.e("####", "getResizedFileList() --> [$count] quality : $quality")
@@ -166,15 +161,15 @@ class MainActivity : AppCompatActivity() {
                     } while (file.length() >= maxFileSize)
                     bitmap.recycle()
                     results.add(Uri.fromFile(file))
-                } catch (e: Exception) {
-                    Log.e("####", "getResizedFileList() --> error : ${e.message}")
-                    e.printStackTrace()
-                } finally {
-                    if (uri == mCameraPhotoPath) {
-                        Log.e("####", "getResizedFileList() --> delete uri")
-                        applicationContext.contentResolver.delete(uri, null, null)
-                        mCameraPhotoPath = null
-                    }
+                }
+            } catch (e: Exception) {
+                Log.e("####", "getResizedFileList() --> error : ${e.message}")
+                e.printStackTrace()
+            } finally {
+                if (uri == mCameraPhotoPath) {
+                    Log.e("####", "getResizedFileList() --> delete uri")
+                    applicationContext.contentResolver.delete(uri, null, null)
+                    mCameraPhotoPath = null
                 }
             }
         }
