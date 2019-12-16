@@ -33,7 +33,7 @@ class MainActivity : AppCompatActivity() {
     private val mWebView: WebView by lazy { findViewById<WebView>(R.id.wv_main) }
     private val mProgressBar: ProgressBar by lazy { findViewById<ProgressBar>(R.id.pb_load) }
     private val mLoLoading: LinearLayout by lazy { findViewById<LinearLayout>(R.id.ll_loading_guide) }
-    private val mIvResults: ImageView by lazy { findViewById<ImageView>(R.id.iv_load_img) }
+    private val mLoContainer: LinearLayout by lazy { findViewById<LinearLayout>(R.id.ll_container) }
     private var mFilePathCallback: ValueCallback<Array<Uri>>? = null
     private var mCameraPhotoPath: Uri? = null
 
@@ -52,32 +52,27 @@ class MainActivity : AppCompatActivity() {
         when (requestCode) {
             UPLOAD_REQUEST_CODE -> {
                 Log.e("####", "onActivityResult() --> data : $data")
-                Log.e("####", "onActivityResult() --> uri : ${data?.data}")
-                val uri = getResultUri(data)
-                val uriArr = if (uri != null) arrayOf(uri) else null
-                mFilePathCallback?.onReceiveValue(uriArr)
+                val uri = getResultUriArray(data)
+                mFilePathCallback?.onReceiveValue(uri)
                 mFilePathCallback = null
             }
             LOAD_IMG_VIEW_REQUEST_CODE -> {
                 Log.e("####", "onActivityResult() --> data : $data")
-                Log.e("####", "onActivityResult() --> uri : ${data?.data}")
+                mLoLoading.visibility = View.VISIBLE
+                mLoContainer.removeAllViews()
                 thread {
-                    runOnUiThread {
-                        mIvResults.visibility = View.GONE
-                        mLoLoading.visibility = View.VISIBLE
-                    }
-                    getResultUri(data)?.let { uri ->
-                        Log.e("####", "uri : $uri")
+                    getResultUriArray(data)?.forEach { uri ->
+                        Log.e("####", "onActivityResult() --> uri : $uri")
                         runOnUiThread {
                             mLoLoading.visibility = View.GONE
-                            mIvResults.run {
-                                visibility = View.VISIBLE
+                            val imageView = ImageView(this).apply {
                                 setImageBitmap(
                                     BitmapFactory.decodeStream(
                                         applicationContext.contentResolver.openInputStream(uri)
                                     )
                                 )
                             }
+                            mLoContainer.addView(imageView)
                         }
                     }
                 }
@@ -107,84 +102,91 @@ class MainActivity : AppCompatActivity() {
         mWebView.loadUrl("http://172.30.1.43:8080/file/home")
     }
 
-    private fun getResultUri(data: Intent?): Uri? {
-        var resultUri: Uri? = null
+    private fun getResultUriArray(data: Intent?): Array<Uri>? {
+        val uriList = mutableListOf<Uri>()
         if (data != null) {
-            data.data?.let { uri ->
-                resultUri = if (!uri.toString().startsWith("content://"))
-                    Uri.fromFile(File(uri.toString()))
-                else
-                    uri
+            Log.e("####", "data.data : ${data.data}")
+            if (data.data != null) {
+                data.data?.let { uri ->
+                    if (!uri.toString().startsWith("content://"))
+                        uriList.add(Uri.fromFile(File(uri.toString())))
+                    else
+                        uriList.add(uri)
+                }
+            } else if (data.clipData != null) {
+                data.clipData?.let { clipData ->
+                    for (i in 0 until clipData.itemCount) {
+                        uriList.add(clipData.getItemAt(i).uri)
+                    }
+                }
+            } else {
+                Log.e("####", "mCameraPhotoPath : $mCameraPhotoPath")
+                if (mCameraPhotoPath != null) {
+                    uriList.add(mCameraPhotoPath!!)
+                }
             }
         } else {
             Log.e("####", "mCameraPhotoPath : $mCameraPhotoPath")
             if (mCameraPhotoPath != null) {
-                resultUri = mCameraPhotoPath
+                uriList.add(mCameraPhotoPath!!)
             }
         }
-        Log.e("####", "resultUri : $resultUri")
-        if (resultUri != null) {
-            val file = getResizedFile(resultUri!!)
-            if (resultUri == mCameraPhotoPath) {
-                Log.e("####", "delete uri")
-                applicationContext.contentResolver.delete(resultUri!!, null, null)
-                mCameraPhotoPath = null
-            }
-            return if (file != null) Uri.fromFile(file) else null
-        }
-        return null
+        Log.e("####", "uriList : $uriList")
+        val results = getResizedFileList(uriList)
+        Log.e("####", "results : $results")
+        return if (results.isEmpty()) null else results.toTypedArray()
     }
 
-    private fun getResizedFile(uri: Uri): File? {
+    private fun getResizedFileList(uriList: List<Uri>): List<Uri> {
+        val results = mutableListOf<Uri>()
         val dirPath = "${cacheDir}/Capture/"
         val fileName = "tmp_img_${System.currentTimeMillis()}.jpg"
         File(dirPath).let { dirs ->
             if (!dirs.exists()) {
                 dirs.mkdirs()
             }
-            if (dirs.isDirectory) {
-                dirs.listFiles()?.forEach {
-                    Log.e("####", "getResizedFile() --> dir.file : $it")
-                    it?.delete()
-                }
-            }
         }
         val file = File("$dirPath$fileName")
         val maxFileSize = 5 * 1024 * 1024
         val reducingValue = 5
-        var count = 0
-        return try {
-            val path = getFilePathFromUri(uri)
-            if (path != null) {
-                val bitmap = getRotatedBitmap(path)
-                do {
-                    val quality = 100 - count++ * reducingValue
-                    Log.e("####", "getResizedFile() --> [$count] quality : $quality")
-                    file.outputStream().use { fos ->
-                        bitmap.compress(Bitmap.CompressFormat.JPEG, quality, fos)
+        uriList.forEach { uri ->
+            getRotatedBitmap(uri)?.let { bitmap ->
+                var count = 0
+                try {
+                    do {
+                        val quality = 100 - count++ * reducingValue
+                        Log.e("####", "getResizedFileList() --> [$count] quality : $quality")
+                        file.outputStream().use { fos ->
+                            bitmap.compress(Bitmap.CompressFormat.JPEG, quality, fos)
+                        }
+                        Log.e(
+                            "####",
+                            "getResizedFileList() --> size : ${file.length()} / maxFileSize : $maxFileSize"
+                        )
+                    } while (file.length() >= maxFileSize)
+                    bitmap.recycle()
+                    results.add(Uri.fromFile(file))
+                } catch (e: Exception) {
+                    Log.e("####", "getResizedFileList() --> error : ${e.message}")
+                    e.printStackTrace()
+                } finally {
+                    if (uri == mCameraPhotoPath) {
+                        Log.e("####", "getResizedFileList() --> delete uri")
+                        applicationContext.contentResolver.delete(uri, null, null)
+                        mCameraPhotoPath = null
                     }
-                    Log.e(
-                        "####",
-                        "getResizedFile() --> size : ${file.length()} / maxFileSize : $maxFileSize"
-                    )
-                } while (file.length() >= maxFileSize)
-                file
-            } else {
-                null
+                }
             }
-        } catch (e: Exception) {
-            Log.e("####", "getResizedFile() --> error : ${e.message}")
-            e.printStackTrace()
-            null
         }
+        return results
     }
 
     private fun getFilePathFromUri(uri: Uri): String? {
         var path: String? = null
         val contentResolver = applicationContext.contentResolver
         contentResolver.query(uri, null, null, null, null)?.use { cursor ->
-            Log.e("####", "getResizedFile() --> cursor.count : ${cursor.count}")
-            Log.e("####", "getResizedFile() --> columnNames : ${cursor.columnNames.toList()}")
+            Log.e("####", "getFilePathFromUri() --> cursor.count : ${cursor.count}")
+            Log.e("####", "getFilePathFromUri() --> columnNames : ${cursor.columnNames.toList()}")
             cursor.moveToNext()
             val pathColumnIdx = cursor.getColumnIndex("_data")
             if (pathColumnIdx != -1) {
@@ -196,8 +198,8 @@ class MainActivity : AppCompatActivity() {
                     val contentUri = MediaStore.Images.Media.EXTERNAL_CONTENT_URI
                     val selection = "_id = ?"
                     val selectionArgs = arrayOf(documentId.split(':')[1])
-                    Log.e("####", "getResizedFile() --> documentId : $documentId")
-                    Log.e("####", "getResizedFile() --> contentUri : $contentUri")
+                    Log.e("####", "getFilePathFromUri() --> documentId : $documentId")
+                    Log.e("####", "getFilePathFromUri() --> contentUri : $contentUri")
                     contentResolver.query(contentUri, null, selection, selectionArgs, null)
                         ?.use { cursor2 ->
                             cursor2.moveToNext()
@@ -208,36 +210,48 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
+        Log.e("####", "getFilePathFromUri() --> path : $path")
         return path
     }
 
-    private fun getRotatedBitmap(path: String): Bitmap {
-        var bitmap = BitmapFactory.decodeFile(path)
-        ExifInterface(path).run {
-            val orientation =
-                getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
-            val degrees = when (orientation) {
-                ExifInterface.ORIENTATION_ROTATE_90 -> 90f
-                ExifInterface.ORIENTATION_ROTATE_180 -> 180f
-                ExifInterface.ORIENTATION_ROTATE_270 -> 270f
-                else -> 0f
-            }
-            Log.e("####", "getRotatedBitmap() --> orientation : $orientation, degrees : $degrees")
-            if (degrees != 0f && bitmap != null) {
-                val matrix = Matrix().apply {
-                    setRotate(degrees)
-                }
-                val converted = Bitmap.createBitmap(
-                    bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true
-                )
+    private fun getRotatedBitmap(uri: Uri): Bitmap? {
+        contentResolver.openFileDescriptor(uri, "r")?.fileDescriptor?.let {
+            var bitmap = BitmapFactory.decodeFileDescriptor(it)
+            getFilePathFromUri(uri)?.let { path ->
+                ExifInterface(path).run {
+                    val orientation =
+                        getAttributeInt(
+                            ExifInterface.TAG_ORIENTATION,
+                            ExifInterface.ORIENTATION_NORMAL
+                        )
+                    val degrees = when (orientation) {
+                        ExifInterface.ORIENTATION_ROTATE_90 -> 90f
+                        ExifInterface.ORIENTATION_ROTATE_180 -> 180f
+                        ExifInterface.ORIENTATION_ROTATE_270 -> 270f
+                        else -> 0f
+                    }
+                    Log.e(
+                        "####",
+                        "getRotatedBitmap() --> orientation : $orientation, degrees : $degrees"
+                    )
+                    if (degrees != 0f && bitmap != null) {
+                        val matrix = Matrix().apply {
+                            setRotate(degrees)
+                        }
+                        val converted = Bitmap.createBitmap(
+                            bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true
+                        )
 
-                if (converted != bitmap) {
-                    bitmap.recycle()
-                    bitmap = converted
+                        if (converted != bitmap) {
+                            bitmap.recycle()
+                            bitmap = converted
+                        }
+                    }
                 }
             }
+            return bitmap
         }
-        return bitmap
+        return null
     }
 
     inner class ChromeClient : WebChromeClient() {
@@ -275,6 +289,7 @@ class MainActivity : AppCompatActivity() {
         val selectionIntent = Intent(Intent.ACTION_GET_CONTENT).apply {
             addCategory(Intent.CATEGORY_OPENABLE)
             type = IMG_MIME_TYPE
+            putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
         }
         val chooserIntent = Intent(Intent.ACTION_CHOOSER).apply {
             putExtra(Intent.EXTRA_INTENT, selectionIntent)
